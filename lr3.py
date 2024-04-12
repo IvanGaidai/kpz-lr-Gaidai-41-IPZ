@@ -1,92 +1,72 @@
+import datetime
+from binance.client import Client
 import pandas as pd
-import ta
-from matplotlib import pyplot as plt
-from binance import Client
+from pandas_ta import rsi, cci, macd
 
-# Загрузка данных
-k_lines = Client().get_historical_klines(
-    symbol="BTCUSDT",
-    interval=Client.KLINE_INTERVAL_1MINUTE,
-    start_str="1 day ago UTC",
-    end_str="now UTC"
-)
+def interpret_signals(data):
+    rsi_signal = "Ціна впаде"
+    if data["RSI"] > 70:
+        rsi_signal = "Ціна буде рости"
+    elif data["RSI"] > 30:
+        rsi_signal = "Невідомий"
 
-# Создание DataFrame
-k_lines = pd.DataFrame(k_lines, columns=['time', 'open', 'high', 'low', 'close', 'volume', 'close_time', 'quote_asset_volume', 'number_of_trades', 'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'ignore'])
-k_lines['time'] = pd.to_datetime(k_lines['time'], unit='ms')
-k_lines['close'] = k_lines['close'].astype(float)
-k_lines['high'] = k_lines['high'].astype(float)
-k_lines['low'] = k_lines['low'].astype(float)
-k_lines['open'] = k_lines['open'].astype(float)
+    cci_signal = "Ціна впаде"
+    if data["CCI"] < -100:
+        cci_signal = "Ціна буде рости"
+    elif data["CCI"] < 100:
+        cci_signal = "Невідомий"
 
-# Расчет индикаторов
-k_lines['RSI'] = ta.momentum.RSIIndicator(k_lines['close']).rsi()
-k_lines['CCI'] = ta.trend.CCIIndicator(k_lines['high'], k_lines['low'], k_lines['close']).cci()
-k_lines['MACD'] = ta.trend.MACD(k_lines['close']).macd()
-k_lines['ATR'] = ta.volatility.AverageTrueRange(k_lines['high'], k_lines['low'], k_lines['close']).average_true_range()
-k_lines['ADX'] = ta.trend.ADXIndicator(k_lines['high'], k_lines['low'], k_lines['close']).adx()
+    macd_signal = "Невідомий"
+    if not pd.isna(data['MACD_prev']) and not pd.isna(data['MACDs_prev']):
+        if data['MACD'] > data['MACDs'] and data['MACD_prev'] < data['MACDs_prev']:
+            macd_signal = "Ціна буде рости"
+        elif data['MACD'] < data['MACDs'] and data['MACD_prev'] > data['MACDs_prev']:
+            macd_signal = "Ціна впаде"
 
-# Создание столбцов для сигналов
-k_lines['RSI_buy_signal'] = (k_lines['RSI'] < 30) & (k_lines['RSI'].shift() >= 30)
-k_lines['RSI_sell_signal'] = (k_lines['RSI'] > 70) & (k_lines['RSI'].shift() <= 70)
-k_lines['CCI_buy_signal'] = (k_lines['CCI'] < -100) & (k_lines['CCI'].shift() >= -100)
-k_lines['CCI_sell_signal'] = (k_lines['CCI'] > 100) & (k_lines['CCI'].shift() <= 100)
-k_lines['MACD_buy_signal'] = (k_lines['MACD'].shift() < 0) & (k_lines['MACD'] > 0)
-k_lines['MACD_sell_signal'] = (k_lines['MACD'].shift() > 0) & (k_lines['MACD'] < 0)
-k_lines['ATR_buy_signal'] = k_lines['ATR'] > k_lines['ATR'].shift()
-k_lines['ATR_sell_signal'] = k_lines['ATR'] < k_lines['ATR'].shift()
-k_lines['ADX_buy_signal'] = (k_lines['ADX'] > 25) & (k_lines['ADX'].shift() <= 25)
-k_lines['ADX_sell_signal'] = (k_lines['ADX'] < 25) & (k_lines['ADX'].shift() >= 25)
+    final_prediction = "Невідомий"
+    if cci_signal != "Невідомий":
+        final_prediction = cci_signal
+    elif rsi_signal != "Невідомий":
+        final_prediction = rsi_signal
+    elif macd_signal != "Невідомий":
+        final_prediction = macd_signal
 
-# Визуализация закрытия и индикаторов с сигналами
-plt.figure(figsize=(14, 7))
-plt.subplot(6, 1, 1)
-plt.plot(k_lines['time'], k_lines['close'], label='Close Price')
-plt.title('Close Price')
+    return final_prediction
 
-plt.subplot(6, 1, 1)
-plt.plot(recent_data['time'], recent_data['close'], label='Close Price')
-plt.plot(recent_data['time'], recent_data['SMA_5'], label='SMA (5)')
-plt.plot(recent_data['time'], recent_data['SMA_20'], label='SMA (20)')
-plt.title('Close Price')
-plt.legend()
+def main():
+    today = datetime.datetime.now().strftime('%Y-%m-%d')
+    yesterday = (datetime.datetime.now() - datetime.timedelta(days=1)).strftime('%Y-%m-%d')
 
-# Subplot for RSI with signals
-plt.subplot(6, 1, 2)
-plt.plot(recent_data['time'], recent_data['RSI'], label='RSI', color='purple')
-plt.scatter(recent_data.loc[recent_data['RSI_buy_signal'], 'time'], recent_data.loc[recent_data['RSI_buy_signal'], 'RSI'], marker='^', color='green', label='Buy Signal')
-plt.scatter(recent_data.loc[recent_data['RSI_sell_signal'], 'time'], recent_data.loc[recent_data['RSI_sell_signal'], 'RSI'], marker='v', color='red', label='Sell Signal')
-plt.title('RSI')
-plt.legend()
+    try:
+        client = Client()
+        k_lines = client.get_historical_klines(
+            symbol="BTCUSDT",
+            interval=client.KLINE_INTERVAL_1MINUTE,
+            start_str=str(yesterday),
+            end_str=str(today)
+        )
 
-# Subplots for other indicators with signals (modify labels as needed)
-plt.subplot(6, 1, 3)
-plt.plot(recent_data['time'], recent_data['MACD'], label='MACD', color='green')
-plt.scatter(recent_data.loc[recent_data['MACD_buy_signal'], 'time'], recent_data.loc[recent_data['MACD_buy_signal'], 'MACD'], marker='^', color='green', label='Buy Signal')
-plt.scatter(recent_data.loc[recent_data['MACD_sell_signal'], 'time'], recent_data.loc[recent_data['MACD_sell_signal'], 'MACD'], marker='v', color='red', label='Sell Signal')
-plt.title('MACD')  
-plt.legend()
+        col_names = ['time', 'open', 'high', 'low', 'close'] + ['extra_' + str(i) for i in range(len(k_lines[0]) - 5)]
+        k_lines_df = pd.DataFrame(k_lines, columns=col_names)
+        k_lines_df = k_lines_df[['time', 'open', 'high', 'low', 'close']]  # Keep only the required columns
+        k_lines_df['time'] = pd.to_datetime(k_lines_df['time'], unit='ms')
+        k_lines_df = k_lines_df.astype({'open': 'float', 'high': 'float', 'low': 'float', 'close': 'float'})
 
-plt.subplot(6, 1, 4)
-plt.plot(recent_data['time'], recent_data['ATR'], label='ATR', color='black')
-plt.scatter(recent_data.loc[recent_data['ATR_buy_signal'], 'time'], recent_data.loc[recent_data['ATR_buy_signal'], 'ATR'], marker='^', color='green', label='Buy Signal')
-plt.scatter(recent_data.loc[recent_data['ATR_sell_signal'], 'time'], recent_data.loc[recent_data['ATR_sell_signal'], 'ATR'], marker='v', color='red', label='Sell Signal')
-plt.title('ATR')  
-plt.legend()
+        rsi_values = rsi(k_lines_df['close'])
+        cci_values = cci(k_lines_df['high'], k_lines_df['low'], k_lines_df['close'])
+        macd_values = macd(k_lines_df['close'])
+        results = pd.concat([rsi_values, cci_values, macd_values], axis=1).dropna().reset_index(drop=True)
+        results.columns = ['RSI', 'CCI', 'MACD', 'MACDh', 'MACDs']
 
-plt.subplot(6, 1, 5)
-plt.plot(recent_data['time'], recent_data['ADX'], label='ADX', color='black')
-plt.scatter(recent_data.loc[recent_data['ADX_buy_signal'], 'time'], recent_data.loc[recent_data['ADX_buy_signal'], 'ADX'], marker='^', color='green', label='Buy Signal')
-plt.scatter(recent_data.loc[recent_data['ADX_sell_signal'], 'time'], recent_data.loc[recent_data['ADX_sell_signal'], 'ADX'], marker='v', color='red', label='Sell Signal')
-plt.title('ADX')  
-plt.legend()
+        results['MACD_prev'] = results['MACD'].shift(1)
+        results['MACDs_prev'] = results['MACDs'].shift(1)
+        results["Prediction"] = results.apply(interpret_signals, axis=1)
 
-plt.subplot(6, 1, 6)
-plt.plot(recent_data['time'], recent_data['CCI'], label='CCI', color='black')
-plt.scatter(recent_data.loc[recent_data['CCI_buy_signal'], 'time'], recent_data.loc[recent_data['CCI_buy_signal'], 'CCI'], marker='^', color='green', label='Buy Signal')
-plt.scatter(recent_data.loc[recent_data['CCI_sell_signal'], 'time'], recent_data.loc[recent_data['CCI_sell_signal'], 'CCI'], marker='v', color='red', label='Sell Signal')
-plt.title('CCI')  
-plt.legend()
+        results.loc[:, ['RSI', 'CCI', 'MACD', 'MACDs', 'Prediction']].to_csv('prediction.csv', index=False)
+        print("prediction.csv")
+    except Exception as e:
+        print(f"An error occurred: {e}")
 
-plt.tight_layout()
-plt.show()
+
+if __name__ == "__main__":
+    main()
